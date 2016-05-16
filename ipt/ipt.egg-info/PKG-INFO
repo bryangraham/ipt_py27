@@ -1,0 +1,15 @@
+Metadata-Version: 1.1
+Name: ipt
+Version: 0.1
+Summary: Probability Tilting Methods for Causal Inference
+Home-page: http://github.com/bryangraham/program_evaluation
+Author: Bryan S. Graham
+Author-email: bgraham@econ.berkeley.edu
+License: MIT
+Description: UNKNOWN
+Keywords: Inverse Probability Tilting (IPT),Auxiliary-to-Study Tilting (AST)
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Topic :: Statistics/Econometrics :: Program Evaluation
