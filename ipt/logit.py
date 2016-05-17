@@ -1,3 +1,13 @@
+# Load libraries dependencies
+import numpy as np
+import numpy.linalg
+
+import scipy as sp
+import scipy.optimize
+
+# Define logit() function
+#-----------------------------------------------------------------------------#
+
 def logit(D, X, s_wgt=1, silent=False):
 
     """

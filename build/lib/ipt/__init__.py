@@ -2,10 +2,11 @@
 """
 __init__.py file for ipt package
 Bryan S. Graham, UC - Berkeley
+bgraham@econ.berkeley.edu
 16 May 2016
 """
 
-# Load libraries need for functions in the package
+# Load libraries dependencies
 import numpy as np
 import numpy.linalg
 

@@ -3,8 +3,9 @@ def logit(D, X, s_wgt=1, silent=False):
     """
     This function computes the ML estimate of the logit binary choice model:
     Pr(D=1|X=x)= exp(x'delta)/[1+exp(x'delta)]. It is not meant to be a full-service
-    logit estimator. It is called by the AST estimator in order to construct
-    propensity score estimates.
+    logit estimator. It is called by the AST att() estimator in order to construct
+    propensity score estimates. This reduces the number of dependencies in the
+    ipt package.
 
     INPUTS
     ------
@@ -42,8 +43,8 @@ def logit(D, X, s_wgt=1, silent=False):
         
         """
         Constructs dim(delta) x 1 score vector associated with logit log-likelihood.
-        NOTE: scipy.optimize requires that the score vector we returned as a 1 dimensional numpy array, NOT
-              a 2 dimensional vector.
+        NOTE: scipy.optimize requires that the score vector be returned as a 1 dimensional numpy array, NOT
+              a 2 dimensional vector, hence the reshape and ravel calls at the start and end of the function.
         """
         
         delta      = np.reshape(delta,(-1,1))   # Reshape one-dimensional score array into two dimensional vector

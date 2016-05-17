@@ -1,3 +1,17 @@
+# Load libraries dependencies
+import numpy as np
+import numpy.linalg
+
+import scipy as sp
+import scipy.optimize
+import scipy.stats
+
+# Import logit() command in ipt module since att() calls it
+from logit import logit
+
+# Define att() function
+#-----------------------------------------------------------------------------#
+
 def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=False, r_W_names=[], t_W_names=[]):
     
     """
@@ -457,7 +471,9 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         print "-------------------------------------------------"
         print "ATT: "  + "%10.6f" % gamma_ast    
         print "     (" + "%10.6f" % np.sqrt(vcov_gamma_ast) + ")"
-    
+        print ""
+        print "NOTES: N0 = " "%0.0f" % Na + ", N1 = " + "%0.0f" % Ns
+                
         if r_W_names:
             print ""
             print "-------------------------------------------------"
@@ -478,7 +494,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         
             if study_tilt:
                 print ""
-                print "Study/Treated sample tilt"
+                print "TREATED (study) sample tilt"
                 print "---------------------------------------------------"
                 
                 c = 0
@@ -519,8 +535,8 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
                 print ""
                 
             print ""
-            print "Auxiliary/Control sample tilt"
-            print "-----------------------------"
+            print "CONTROL (auxiliary) sample tilt"
+            print "-------------------------------"
             
             c = 0
             for names in t_W_names:
@@ -558,12 +574,17 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
             
             # Compute means of t_W across various distribution function estimates
             # Mean of t(W) across controls
-            mu_t_D0      = np.sum(((1-D)/Na) * t_W, axis = 0)
-            mu_t_D0_std  = np.sqrt(np.sum(((1-D)/Na) * (t_W - mu_t_D0)**2, axis = 0))
+            mu_t_D0      = np.sum((1-D) * t_W, axis = 0)/Na
+            mu_t_D0_std  = np.sqrt(np.sum((1-D) * (t_W - mu_t_D0)**2, axis = 0)/Na)
             
             # Mean of t(W) across treated
-            mu_t_D1      = np.sum((D/Ns) * t_W, axis = 0)
-            mu_t_D1_std  = np.sqrt(np.sum((D/Ns) * (t_W - mu_t_D1)**2, axis = 0))
+            mu_t_D1      = np.sum(D * t_W, axis = 0)/Ns
+            mu_t_D1_std  = np.sqrt(np.sum(D * (t_W - mu_t_D1)**2, axis = 0)/Ns)
+            
+            # Normalized mean differences across treatment and controls 
+            # (cf., Imbens, 2015, Journal of Human Resources)
+            NormDif_t    = (mu_t_D1 - mu_t_D0)/np.sqrt((mu_t_D1_std**2 + mu_t_D0_std**2)/2)    
+                                    
             
             # Semiparametrically efficient estimate of mean of t(W) across treated
             mu_t_eff     = np.sum(pi_eff * t_W, axis = 0)
@@ -581,12 +602,13 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
             print ""
             print "Means & standard deviations of t_W (pre-balance)                                           "
             print "-------------------------------------------------------------------------------------------"
-            print "                           D = 0                   D = 1                                   "
+            print "                            D = 0                  D = 1                  Norm. Diff.      "
             print "-------------------------------------------------------------------------------------------"
             c = 0
             for names in t_W_names:
                 print names.ljust(25) + "%8.4f" % mu_t_D0[c]  + " (" + "%8.4f" % mu_t_D0_std[c] + ")    " \
-                                      + "%8.4f" % mu_t_D1[c]  + " (" + "%8.4f" % mu_t_D1_std[c] + ")    " 
+                                      + "%8.4f" % mu_t_D1[c]  + " (" + "%8.4f" % mu_t_D1_std[c] + ")    " \
+                                      + "%8.4f" % NormDif_t[c]  
                 c += 1
             
             # Post-balance table

@@ -1,13 +1,16 @@
 def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=False, r_W_names=[], t_W_names=[]):
     
     """
+    
+    AUTHOR: Bryan S. Graham, UC - Berkeley, bgraham@econ.berkeley.edu    
+    
     This function estimates the average treatment effect on the treated (ATT)
     using the "auxiliary-to-study tilting" (AST) method described by 
     Graham, Pinto and Egel (2016, Journal of Business and Economic Statistics). 
     The notation below mirrors that in the paper where possible. The Supplemental 
-    Web Appendix of the paper describes the estimation algorithm implemented here in detail. 
-    A copy of the paper and all supplemental appendices can be found online 
-    at http://bryangraham.github.io/econometrics/
+    Web Appendix of the paper describes the estimation algorithm implemented here 
+    in detail. A copy of the paper and all supplemental appendices can be found 
+    online at http://bryangraham.github.io/econometrics/
 
     INPUTS
     ------
@@ -19,27 +22,34 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
                 (constant included) -- these are the propensity score functions
     t_W       : t(W), N x 1+M matrix of functions of always observed covariates
                 (constant included) -- these are the balancing functions     
-    study_tilt: If True compute the study sample tilt. This should be set to False if all the elements in t(W)
-                are also contrained in h(W). In that case the study_tilt coincides with its empirical measure.
-                This measure is returned in the pi_s vector when  study_tilt = False.
-    rlgrz     : Regularization parameter. Should positive and less than or equal to one. Smaller
-                values correspond to less regularizations, but may cause underflow problems when
-                overlap is poor. The default value should be adequate for most applications.
-    NG        : G x 1 vector with gth row equal to the number of units in the gth cluster (optional)
-                NOTE: Data are assumed to be sorted by groups.
+    study_tilt: If True compute the study sample tilt. This should be set to False 
+                if all the elements in t(W) are also contrained in h(W). In that 
+                case the study_tilt coincides with its empirical measure.This 
+                measure is returned in the pi_s vector when  study_tilt = False.
+    rlgrz     : Regularization parameter. Should positive and less than or equal 
+                to one. Smaller values correspond to less regularizations, but 
+                may cause underflow problems when overlap is poor. The default 
+                value will be adequate for most applications.
+    NG        : G x 1 vector with gth row equal to the number of units in the gth 
+                cluster (optional)
+                NOTE: Data are assumed to be pre-sorted by groups.
     s_wgt     : N x 1 vector of known sampling weights (optional)
     silent    : if silent = True display less optimization information and use
                 lower tolerance levels (optional)
-    r_W_names : List of strings of the same dimension as r_W with variable names (optional)
-    t_W_names : List of strings of the same dimension as t_W with variable names (optional)     
+    r_W_names : List of strings of the same dimension as r_W with variable names 
+                (optional, but need for some output to be printed)
+    t_W_names : List of strings of the same dimension as t_W with variable names 
+                (optional, but need for some output to be printed)     
 
     OUTPUTS
     -------
     gamma_ast         : AST estimate of gamma (the ATT)
     vcov_gamma_ast    : estimated large sample variance of gamma
-    study_test        : ChiSq test statistic of H0 : lambda_s = 0; list with [statistic, dof, p-val]
+    study_test        : ChiSq test statistic of H0 : lambda_s = 0; list with 
+                        [statistic, dof, p-val]
                         NOTE: returns [None, None, None] if study_tilt = False
-    auxiliar_test     : ChiSq test statistic of H0 : lambda_a = 0; list with [statistic, dof, p-val]
+    auxiliar_test     : ChiSq test statistic of H0 : lambda_a = 0; list with 
+                        [statistic, dof, p-val]
     pi_eff            : Semiparametrically efficient estimate of F_s(W) 
     pi_s              : Study sample tilt
     pi_a              : Auxiliary sample tilt 
@@ -68,10 +78,12 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         OUTPUTS
         -------
         phi, phi1, phi2 : N x 1 vectors with elements phi(p_W_index + lmbda't_W)
-                          and its first and second derivatives w.r.t to v = p_W_index + lmbda't_W
+                          and its first and second derivatives w.r.t to 
+                          v = p_W_index + lmbda't_W
         """
         
-        # Coefficients on quadratic extrapolation of phi(v) used to regularize the problem
+        # Coefficients on quadratic extrapolation of phi(v) used to regularize 
+        # the problem
         c = -(NQ - 1)
         b = NQ + (NQ - 1)*np.log(1/(NQ - 1))
         a = -(NQ - 1)*(1 + np.log(1/(NQ - 1)) + 0.5*(np.log(1/(NQ - 1)))**2) 
@@ -220,7 +232,8 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     #------------------------------#
 
     # NOTE: Only compute the study_tilt if directed to do so (this is the default). The study_tilt
-    #       doesn't need to be computed if all the elements of t(W) are also included in h(W).
+    #       doesn't need to be computed if all the elements of t(W) are also included in h(W). It
+    #       is the users responsibility to check this condition.
     
     if study_tilt:
         # -------------------------------------------------- #
@@ -426,7 +439,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     else:
         study_test  = [None, None, None]
         
-    # Compute propensity score specification test based on auxiliary tilt
+    # Compute propensity score specification test based on auxiliary tilt (always done)
     iV_lambda_a    = np.linalg.inv(vcov_theta_ast[1+L+1+M:1+L+1+M+1+M,1+L+1+M:1+L+1+M+1+M])
     ps_test_at     = np.dot(np.dot(lambda_a_hat.T, iV_lambda_a), lambda_a_hat)
     dof_at         = len(lambda_a_hat)
@@ -566,7 +579,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
             
             # Pre-balance table
             print ""
-            print "Means and standard deviations of t_W (pre-balance)                                         "
+            print "Means & standard deviations of t_W (pre-balance)                                           "
             print "-------------------------------------------------------------------------------------------"
             print "                           D = 0                   D = 1                                   "
             print "-------------------------------------------------------------------------------------------"
