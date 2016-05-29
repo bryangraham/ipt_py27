@@ -1,4 +1,7 @@
-# Load libraries dependencies
+# Ensure "normal" division
+from __future__ import division
+
+# Load library dependencies
 import numpy as np
 import numpy.linalg
 
@@ -11,6 +14,8 @@ import scipy.optimize
 def logit(D, X, s_wgt=1, silent=False):
 
     """
+    AUTHOR: Bryan S. Graham, UC - Berkeley, bgraham@econ.berkeley.edu      
+    
     This function computes the ML estimate of the logit binary choice model:
     Pr(D=1|X=x)= exp(x'delta)/[1+exp(x'delta)]. It is not meant to be a full-service
     logit estimator. It is called by the AST att() estimator in order to construct

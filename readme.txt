@@ -27,6 +27,9 @@ A simple example script to get started is::
 
 	>>>> # Load ipt package
 	>>>> import ipt as ipt
+	
+	>>>> # View help file
+	>>>> help(ipt.att)
 
 	>>>> # Read nsw data directly from Rajeev Dehejia's webpage into a
 	>>>> # Pandas dataframe
@@ -34,55 +37,39 @@ A simple example script to get started is::
 	>>>> import pandas as pd
 
 	>>>> nsw=pd.read_stata("http://www.nber.org/~rdehejia/data/nsw_dw.dta")
+	
+	>>>> # Make some adjustments to variable definitions in experimental dataframe
+	>>>> nsw['constant'] = 1                # Add constant to observational dataframe
+	>>>> nsw['age']      = nsw['age']/10    # Rescale age to be in decades
+	>>>> nsw['re74']     = nsw['re74']/1000 # Recale earnings to be in thousands
+	>>>> nsw['re75']     = nsw['re75']/1000 # Recale earnings to be in thousands
 
-	>>>> # Extract treatment indicator
+	>>>> # Treatment indicator
 	>>>> D = nsw['treat']
-	>>>> N = len(D)
-	>>>> D = np.array(D).reshape(N,1)
 
 	>>>> # Balancing moments
-	>>>> t_W = nsw[['re74','re75']]/1000
-	>>>> t_W['re74_sq']     = t_W['re74']**2
-	>>>> t_W['re75_sq']     = t_W['re75']**2
-	>>>> t_W['re74_X_re75'] = t_W['re74']*t_W['re75']
-	>>>> t_W['age']         = nsw['age']/10
-	>>>> t_W['education']   = nsw['education']
-	>>>> t_W['black']       = nsw['black']
-	>>>> t_W['hispanic']    = nsw['hispanic']
-	>>>> t_W                = np.concatenate((np.ones((N,1)), t_W), axis=1)
+	>>>> t_W = nsw[['constant','black','hispanic','education','age','re74','re75']]
 
 	>>>> # Propensity score variables
-	>>>> # NOTE: Propensity score assumed constant, consistent with RCT
-	>>>> r_W = np.ones((N,1))
+	>>>> r_W = nsw[['constant']]
 
 	>>>> # Outcome
 	>>>> Y = nsw['re78']
-	>>>> Y = np.array(Y).reshape(N,1)
-
-	>>>> # Variable names
-	>>>> ps_names  = ['constant']
-	>>>> tlt_names = ['constant','earnings 1974','earnings 1975','earnings sq 1974','earnings sq 1975','earnings 74 x 75',\
-             		  'age', 'education', 'black', 'hispanic']
-
-	>>>> # Read help file for ipt.att()
-	>>>> help(ipt.att)
 
 	>>>> # Compute AST estimate of ATT
 	>>>> [gamma_as, vcov_gamma_ast, study_test, auxiliary_test, pi_eff_nsw, pi_s_nsw, pi_a_nsw, exitflag] = \
-         			   ipt.att(D, Y, r_W, t_W, study_tilt=True, rlgrz=0.75, NG=None,s_wgt=1, silent=False, \
-                    		   r_W_names=ps_names, t_W_names=tlt_names)
-    
+	>>>>                                                                 ipt.att(D, Y, r_W, t_W, study_tilt=True)
+
 
 CODE CITATION
 ---------------
-Graham, Bryan S. (2016). "ipt: a Python 2.7  package for causal inference by inverse probability tilting," (Version 0.1) 
+Graham, Bryan S. (2016). "ipt: a Python 2.7  package for causal inference by inverse probability tilting," (Version 0.2.2) 
 	[Computer program]. Available at https://github.com/bryangraham/ipt (Accessed 04 May 2016) 
 	
 PAPER CITATIONS
 ---------------
 Graham, Bryan S., Cristine Pinto and Daniel Egel. (2012). “Inverse probability tilting for moment condition models 
 	with missing data,” Review of Economic Studies 79 (3): 1053 - 1079
-
 
 Graham, Bryan S., Cristine Pinto and Daniel Egel. (2016). “Efficient estimation of data combination models by the 
 	method of auxiliary-to-study tilting (AST),” Journal of Business and Economic Statistics 31 (2): 288 - 301 	

@@ -7,5 +7,6 @@ bgraham@econ.berkeley.edu
 """
 
 # Import the different functions into the package
+from ols import ols
 from logit import logit
 from att import att

@@ -1,4 +1,7 @@
-# Load libraries dependencies
+# Ensure "normal" division
+from __future__ import division
+
+# Load library dependencies
 import numpy as np
 import numpy.linalg
 
@@ -12,7 +15,7 @@ from logit import logit
 # Define att() function
 #-----------------------------------------------------------------------------#
 
-def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=False, r_W_names=[], t_W_names=[]):
+def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=False):
     
     """
     
@@ -28,13 +31,13 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
 
     INPUTS
     ------
-    D         : N x 1 vector with ith element equal to 1 if ith unit in the merged
+    D         : N x 1 pandas.Series with ith element equal to 1 if ith unit in the merged
                 sample is from the study population and zero if from the auxiliary
                 population (i.e., D is the "treatment" indicator)
-    Y         : N x 1  vector of observed outcomes                  
-    r_W       : r(W), N x 1+L matrix of functions of always observed covariates
+    Y         : N x 1  pandas.Series of observed outcomes                  
+    r_W       : r(W), N x 1+L pandas.DataFrame of functions of always observed covariates
                 (constant included) -- these are the propensity score functions
-    t_W       : t(W), N x 1+M matrix of functions of always observed covariates
+    t_W       : t(W), N x 1+M pandas.DataFrame of functions of always observed covariates
                 (constant included) -- these are the balancing functions     
     study_tilt: If True compute the study sample tilt. This should be set to False 
                 if all the elements in t(W) are also contrained in h(W). In that 
@@ -44,16 +47,13 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
                 to one. Smaller values correspond to less regularizations, but 
                 may cause underflow problems when overlap is poor. The default 
                 value will be adequate for most applications.
-    NG        : G x 1 vector with gth row equal to the number of units in the gth 
-                cluster (optional)
+    c_id      : N X 1 pandas.Series of unique `cluster' id values (assumed to be integer valued) (optional)
+                NOTE: Default is to assume independent observations and report heteroscedastic robust 
+                      standard errors
                 NOTE: Data are assumed to be pre-sorted by groups.
-    s_wgt     : N x 1 vector of known sampling weights (optional)
+    s_wgt     : N x 1 array like vector of sampling weights variable (optional)
     silent    : if silent = True display less optimization information and use
                 lower tolerance levels (optional)
-    r_W_names : List of strings of the same dimension as r_W with variable names 
-                (optional, but need for some output to be printed)
-    t_W_names : List of strings of the same dimension as t_W with variable names 
-                (optional, but need for some output to be printed)     
 
     OUTPUTS
     -------
@@ -70,11 +70,11 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     exitflag          : 1 = success, 2 = can't compute MLE of p-score, 3 = can't compute study/treated tilt,
                         4 = can't compute auxiliary/control tilt
 
-    Functions called  : logit()                             (...logit_logl(), logit_score(), logit_hess()...)
-                        ast_crit(), ast_foc(), ast_soc()    (...ast_phi()...)
+    FUNCTIONS CALLED  : logit()                             (...logit_logl(), logit_score(), logit_hess()...)
+    ----------------    ast_crit(), ast_foc(), ast_soc()    (...ast_phi()...)
     """
     
-    def ast_phi(lmbda, t_W, p_W_index, NQ):
+    def ast_phi(lmbda, t_W, p_W_index, NQ, rlgrz):
         
         """
         This function evaluates the regularized phi(v) function for 
@@ -88,6 +88,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         t_W           : vector of balancing moments
         p_W_index     : index of estimated logit propensity score
         NQ            : sample size times the marginal probability of missingness
+        rlgrz         : Regularization parameter. See discussion in main header.
         
         OUTPUTS
         -------
@@ -95,6 +96,10 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
                           and its first and second derivatives w.r.t to 
                           v = p_W_index + lmbda't_W
         """
+        
+        # Adjust the NQ cut-off value used for quadratic extrapolation according
+        # to the user-defined rlgrz parameter
+        NQ =  NQ*rlgrz        
         
         # Coefficients on quadratic extrapolation of phi(v) used to regularize 
         # the problem
@@ -112,7 +117,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
           
         return [phi, phi1, phi2]
 
-    def ast_crit(lmbda, D, p_W, p_W_index, t_W, NQ, s_wgt=1):
+    def ast_crit(lmbda, D, p_W, p_W_index, t_W, NQ, rlgrz, s_wgt):
         
         """
         This function constructs the AST criterion function
@@ -126,6 +131,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         p_W_index     : index of estimated logit propensity score
         t_W           : vector of balancing moments
         NQ            : sample size times the marginal probability of missingness
+        rlgrz         : Regularization parameter. See discussion in main header.
         s_wgt         : N x 1 vector of known sampling weights (optional)
         
         OUTPUTS
@@ -136,12 +142,12 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         """
         
         lmbda   = np.reshape(lmbda,(-1,1))                                     # make lmda 2-dimensional object
-        [phi, phi1, phi2] = ast_phi(lmbda, t_W, p_W_index, NQ)                 # compute phi and 1st/2nd derivatives
+        [phi, phi1, phi2] = ast_phi(lmbda, t_W, p_W_index, NQ, rlgrz)          # compute phi and 1st/2nd derivatives
         crit    = -np.sum(s_wgt * (D * phi - np.dot(t_W, lmbda)) * (p_W / NQ)) # AST criterion (scalar)
         
         return crit
     
-    def ast_foc(lmbda, D, p_W, p_W_index, t_W, NQ, s_wgt):
+    def ast_foc(lmbda, D, p_W, p_W_index, t_W, NQ, rlgrz, s_wgt):
         
         """
         Returns first derivative vector of AST criterion function with respect
@@ -149,13 +155,13 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         """
         
         lmbda   = np.reshape(lmbda,(-1,1))                              # make lmda 2-dimensional object
-        [phi, phi1, phi2] = ast_phi(lmbda, t_W, p_W_index, NQ)          # compute phi and 1st/2nd derivatives
+        [phi, phi1, phi2] = ast_phi(lmbda, t_W, p_W_index, NQ, rlgrz)   # compute phi and 1st/2nd derivatives
         foc     = -np.dot(t_W.T, (s_wgt * (D * phi1 - 1) * (p_W / NQ))) # AST gradient (1+M x 1 vector)
         foc     = np.ravel(foc)                                         # make foc 1-dimensional numpy array
         
         return foc
     
-    def ast_soc(lmbda, D, p_W, p_W_index, t_W, NQ, s_wgt):
+    def ast_soc(lmbda, D, p_W, p_W_index, t_W, NQ, rlgrz, s_wgt):
         
         """
         Returns hessian matrix of AST criterion function with respect
@@ -163,33 +169,53 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         """
         
         lmbda   = np.reshape(lmbda,(-1,1))                                # make lmda 2-dimensional object
-        [phi, phi1, phi2] = ast_phi(lmbda, t_W, p_W_index, NQ)            # compute phi and 1st/2nd derivatives
+        [phi, phi1, phi2] = ast_phi(lmbda, t_W, p_W_index, NQ, rlgrz)     # compute phi and 1st/2nd derivatives
         soc     = -np.dot(((s_wgt * D * phi2 * (p_W / NQ)) * t_W).T, t_W) # AST hessian (note use of numpy broadcasting rules)
                                                                           # (1 + M) x (1 + M) "matrix" (numpy array) 
         return [soc]
     
     def ast_study_callback(lmbda):
-        print "Value of ast_crit = "   + "%.6f" % ast_crit(lmbda, D, p_W, p_W_index, t_W, NQ, s_wgt) + \
-              ",  2-norm of ast_foc = "+ "%.6f" % numpy.linalg.norm(ast_foc(lmbda, D, p_W, p_W_index, t_W, NQ, s_wgt))
+        print "Value of ast_crit = "   + "%.6f" % ast_crit(lmbda, D, p_W, p_W_index, t_W, NQ, rlgrz, s_wgt) + \
+              ",  2-norm of ast_foc = "+ "%.6f" % numpy.linalg.norm(ast_foc(lmbda, D, p_W, p_W_index, t_W, \
+                                                                            NQ, rlgrz, s_wgt))
     
     def ast_auxiliary_callback(lmbda):
-        print "Value of ast_crit = "   + "%.6f" % ast_crit(lmbda, 1-D, p_W, -p_W_index, t_W, NQ, s_wgt) + \
-              ",  2-norm of ast_foc = "+ "%.6f" % numpy.linalg.norm(ast_foc(lmbda, 1-D, p_W, -p_W_index, t_W, NQ, s_wgt))
+        print "Value of ast_crit = "   + "%.6f" % ast_crit(lmbda, 1-D, p_W, -p_W_index, t_W, NQ, rlgrz, s_wgt) + \
+              ",  2-norm of ast_foc = "+ "%.6f" % numpy.linalg.norm(ast_foc(lmbda, 1-D, p_W, -p_W_index, t_W, \
+                                                                            NQ, rlgrz, s_wgt))
 
     
     # ----------------------------------------------------------------------------------- #
     # - STEP 1 : ORGANIZE DATA                                                          - #
     # ----------------------------------------------------------------------------------- #
 
-    N       = len(D)                  # Number of units in sample  
-    Ns      = np.sum(D)               # Number of study units in the sample (treated units) 
-    Na      = N-Ns                    # Number of auxiliary units in the sample (control units) 
-    M       = np.shape(t_W)[1] - 1    # Dimension of t_W (excluding constant)
-    L       = np.shape(r_W)[1] - 1    # Dimension of r_W (excluding constant)
-    s_wgt   = s_wgt/np.mean(s_wgt)    # normalize sample weights to have mean one
-    DY      = D * Y                   # D*Y, N x 1  vector of observed outcomes for treated/study units
-    mDX     = (1-D) * Y               # (1-D)*X, N x 1  vector of observed outcomes for non-treated/auxiliary units 
+    # Extract variable names from pandas data objects
+    dep_var   = Y.name                  # Get dependent variable names
+    r_W_names = r_W.columns             # Get t_W variable names
+    t_W_names = t_W.columns             # Get t_W variable names
+    
+    # Transform pandas objects into appropriately sized numpy arrays
+    D         = D.reshape((-1,1))       # Turn pandas.Series into N x 1 numpy array
+    Y         = Y.reshape((-1,1))       # Turn pandas.Series into N x 1 numpy array
+    r_W       = np.asarray(r_W)         # Turn pandas.DataFrame into N x 1 + L numpy array
+    t_W       = np.asarray(t_W)         # Turn pandas.DataFrame into N x 1 + M numpy array
 
+    # Extract basic information and set-up AST problem
+    N         = len(D)                  # Number of units in sample  
+    Ns        = np.sum(D)               # Number of study units in the sample (treated units) 
+    Na        = N-Ns                    # Number of auxiliary units in the sample (control units) 
+    M         = np.shape(t_W)[1] - 1    # Dimension of t_W (excluding constant)
+    L         = np.shape(r_W)[1] - 1    # Dimension of r_W (excluding constant)
+    DY        = D * Y                   # D*Y, N x 1  vector of observed outcomes for treated/study units
+    mDX       = (1-D) * Y               # (1-D)*X, N x 1  vector of observed outcomes for non-treated/auxiliary units 
+
+    # Process sampling weights as needed
+    if s_wgt is None:
+        s_wgt = 1
+    else:
+        s_wgt = s_wgt.reshape(N,1)    # Turn pandas.Series into N x 1 numpy array (if relevant)
+        s_wgt = s_wgt/np.mean(s_wgt)  # Normalize sampling weights to be mean one
+    
     # ----------------------------------------------------------------------------------- #
     # - STEP 2 : ESTIMATE PROPENSITY SCORE PARAMETER BY LOGIT ML                        - #
     # ----------------------------------------------------------------------------------- #
@@ -197,9 +223,9 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     try:
         if not silent:
             print ""
-            print "-------------------------------------------------"
-            print "- Computing propensity score by MLE             -"
-            print "-------------------------------------------------"
+            print "-------------------------------------------------------"
+            print "- Computing propensity score by MLE                   -"
+            print "-------------------------------------------------------"
         
         [delta_ml, vcov_delta_ml, success]= logit(D, r_W[:,1:], s_wgt, silent)  # CMLE of p-score coefficients
         delta_ml                 = np.reshape(delta_ml,(-1,1))         # Put delta_ml into 2-dimensional form
@@ -258,22 +284,22 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         try:
             if not silent:
                 print ""
-                print "-------------------------------------------------"
-                print "- Computing study/treated sample tilt           -"
-                print "-------------------------------------------------"
+                print "-------------------------------------------------------"
+                print "- Computing study/treated sample tilt                 -"
+                print "-------------------------------------------------------"
             
                 # Derivative check at starting values
-                grad_norm = sp.optimize.check_grad(ast_crit, ast_foc, lambda_sv, D, p_W, p_W_index, t_W, NQ/rlgrz, s_wgt, \
-                                                   epsilon = 1e-10)
+                grad_norm = sp.optimize.check_grad(ast_crit, ast_foc, lambda_sv, D, p_W, p_W_index, t_W, NQ, rlgrz, \
+                                                   s_wgt, epsilon = 1e-10)
                 print 'Study sample tilt derivative check (2-norm): ' + "%.8f" % grad_norm
                 
                 # Solve for tilting parameters
-                lambda_s_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(D, p_W, p_W_index, t_W, NQ/rlgrz, s_wgt), \
+                lambda_s_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(D, p_W, p_W_index, t_W, NQ, rlgrz, s_wgt), \
                                                     method='Newton-CG', jac=ast_foc, hess=ast_soc, \
                                                     callback = ast_study_callback, options=options_set)
             else:
                 # Solve for tilting parameters
-                lambda_s_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(D, p_W, p_W_index, t_W, NQ/rlgrz, s_wgt), \
+                lambda_s_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(D, p_W, p_W_index, t_W, NQ, rlgrz, s_wgt), \
                                                     method='Newton-CG', jac=ast_foc, hess=ast_soc, \
                                                     options=options_set)
         except:
@@ -305,7 +331,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
         if not silent:
             print ""
             print "----------------------------------------------------------------------"
-            print "- Tilt of study sample not required by user (study_tilt = False).    -"
+            print "- Tilt of study sample not requested by user (study_tilt = False).   -"
             print "- Validity of this requires all elements of t(W) to be elements of   -"
             print "- h(W) as well. User is advised to verify this condition.            -"
             print "----------------------------------------------------------------------"
@@ -325,22 +351,22 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     try:
         if not silent:
             print ""
-            print "-------------------------------------------------"
-            print "- Computing auxiliary/control sample tilt       -"
-            print "-------------------------------------------------"
+            print "-------------------------------------------------------"
+            print "- Computing auxiliary/control sample tilt             -"
+            print "-------------------------------------------------------"
             
             # Derivative check at starting values
-            grad_norm = sp.optimize.check_grad(ast_crit, ast_foc, lambda_sv, 1-D, p_W, -p_W_index, t_W, NQ/rlgrz, s_wgt, \
-                                               epsilon = 1e-10)
+            grad_norm = sp.optimize.check_grad(ast_crit, ast_foc, lambda_sv, 1-D, p_W, -p_W_index, t_W, NQ, rlgrz, \
+                                               s_wgt, epsilon = 1e-10)
             print 'Auxiliary sample tilt derivative check (2-norm): ' + "%.8f" % grad_norm 
             
             # Solve for tilting parameters
-            lambda_a_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(1-D, p_W, -p_W_index, t_W, NQ/rlgrz, s_wgt), \
+            lambda_a_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(1-D, p_W, -p_W_index, t_W, NQ, rlgrz, s_wgt), \
                                                 method='Newton-CG', jac=ast_foc, hess=ast_soc, \
                                                 callback = ast_auxiliary_callback, options=options_set)    
         else:     
             # Solve for tilting parameters
-            lambda_a_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(1-D, p_W, -p_W_index, t_W, NQ/rlgrz, s_wgt), \
+            lambda_a_res = sp.optimize.minimize(ast_crit, lambda_sv, args=(1-D, p_W, -p_W_index, t_W, NQ, rlgrz, s_wgt), \
                                                 method='Newton-CG', jac=ast_foc, hess=ast_soc, \
                                                 options=options_set)
     except:
@@ -362,7 +388,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     lambda_a_hat = -np.reshape(lambda_a_res.x,(-1,1))                          # auxiliary/control sample tilting 
                                                                                # parameter estimates 
     p_W_a = (1+np.exp(-np.dot(r_W, delta_ml) - np.dot(t_W, lambda_a_hat)))**-1 # auxiliary sample tilted p-score
-    pi_a  = (1-D) * pi_eff / (1-p_W_a)                                         # auxiliary sample tilt
+    pi_a  = (1-D) * (pi_eff / (1-p_W_a))                                       # auxiliary sample tilt
     
     # ----------------------------------------------------------------------------------- #
     # - STEP 4 : SOLVE FOR AST ESTIMATE OF GAMMA (i.e., ATT)                            - #
@@ -384,27 +410,34 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
 
     # Calculate covariance matrix of moment vector. Take into account any 
     # within-group dependence/clustering as needed
-    if NG is None:
+    if c_id is None:
         # Case 1: No cluster dependence to account for when constructing covariance matrix
-        G = N
-        V_m = np.dot(m, m.T)/G
+        C   = N                                         # Number of clusters equals number of observations        
+        fsc = N/(N - (1+L+2*(1+M)+1))                   # Finite-sample correction factor        
+        V_m = fsc*np.dot(m, m.T)/N
+        
     else:
         # Case 2: Need to correct for cluster dependence when constructing covariance matrix
-        G = len(NG)
-        V_m = np.zeros((1+L+2*(1+M)+1,1+L+2*(1+M)+1))
-        
-        for g in range(0,G):
-            # upper & lower bounds for the g-th group
-            n1 = np.sum(NG[0:g]) 
-            n2 = np.sum(NG[0:g+1])           
-            
-            # sum of moments for units in g-th cluster
-            m_g = np.sum(m[:,n1:n2],1)
-            m_g = np.reshape(m_g,(-1,1))
-            
-            # update variance-covariance matrix
-            V_m = V_m + np.dot(m_g, m_g.T) / G    
+    
+        # Get number and unique list of clusters
+        c_list  = np.unique(c_id)            
+        C       = len(c_list)    
 
+        # Calculate cluster-robust variance-covariance matrix of m
+        # Sum moment vector within clusters
+        sum_m   = np.empty((C,1+L+2*(1+M)+1))           # initiate vector of cluster-summed moments
+        
+        for c in range(0,C):
+           
+            # sum of moments for units in c-th cluster
+            b_cluster    = np.nonzero((c_id == c_list[c]))[0]                             # Observations in c-th cluster 
+            sum_m[c,:]   = np.sum(m[np.ix_(range(0,1+L+2*(1+M)+1), b_cluster)], axis = 1) # Sum over "columns" within c-th cluster
+            
+        # Compute variance-covariance matrix of beta_hat
+        fsc = (N/(N - (1+L+2*(1+M)+1)))*(C/(C-1))       # Finite-sample correction factor
+        V_m = fsc*np.dot(m, m.T)/C                      # Variance-covariance of the summed moments        
+        
+        
     # Form Jacobian matrix for entire parameter: theta = (rho, delta, lambda, gamma)
     e_V  = np.exp(np.dot(r_W, delta_ml))
     e_Va = np.exp(np.dot(r_W, delta_ml) + np.dot(t_W, lambda_a_hat))
@@ -422,7 +455,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     M3_lambda_s = np.dot((-s_wgt * (D / p_W_s**2) * p_W * (e_Vs / (1 + e_Vs)**2) * t_W).T, t_W)/N  # 1 + M x 1 + M
     M4_lambda_s = np.dot((-s_wgt * (D / p_W_s**2) * p_W * DY * (e_Vs / (1 + e_Vs)**2)).T, t_W)/N   # 1     x 1 + M
 
-    M4_gamma = -(NQ/N).reshape(1,1)                                                                               # 1     x 1  
+    M4_gamma = -(NQ/N).reshape(1,1)                                                                # 1     x 1  
     
     M1 = np.hstack((M1_delta, np.zeros((1+L,1+M)), np.zeros((1+L,1+M)), np.zeros((1+L,1)))) 
     M2 = np.hstack((M2_delta, M2_lambda_a,         np.zeros((1+M,1+M)), np.zeros((1+M,1))))  
@@ -430,11 +463,11 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     M4 = np.hstack((M4_delta, M4_lambda_a,         M4_lambda_s,         M4_gamma))              
     
     # Concatenate Jacobian and compute inverse
-    M_hat = (N/G)*np.vstack((M1, M2, M3, M4))              
+    M_hat = (N/C)*np.vstack((M1, M2, M3, M4))              
     iM_hat = np.linalg.inv(M_hat)
    
     # Compute sandwich variance estimates
-    vcov_theta_ast  = np.dot(np.dot(iM_hat, V_m), iM_hat.T)/G
+    vcov_theta_ast  = np.dot(np.dot(iM_hat, V_m), iM_hat.T)/C
     vcov_gamma_ast  = vcov_theta_ast[-1,-1]       
     
     exitflag = 1 # AST estimate of the ATT successfully computed!
@@ -466,162 +499,173 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz = 1, NG=None, s_wgt=1, silent=Fal
     
     if not silent:
         print ""
-        print "-------------------------------------------------"
-        print "- Auxiliary-to-Study (AST) estimates of the ATT -"
-        print "-------------------------------------------------"
+        print "-------------------------------------------------------------------------------------------"
+        print "- Auxiliary-to-Study (AST) estimates of the ATT                                           -"
+        print "-------------------------------------------------------------------------------------------"
         print "ATT: "  + "%10.6f" % gamma_ast    
         print "     (" + "%10.6f" % np.sqrt(vcov_gamma_ast) + ")"
         print ""
-        print "NOTES: N0 = " "%0.0f" % Na + ", N1 = " + "%0.0f" % Ns
+        print "-------------------------------------------------------------------------------------------"
+        if c_id is None:
+            print "NOTES: Outcome variable = " + dep_var
+            print "       Heteroscedastic-robust standard errors reported"
+            print "       N0 = " "%0.0f" % Na + ", N1 = " + "%0.0f" % Ns
+        else:
+            print "NOTES: Outcome variable = " + dep_var
+            print "       Cluster-robust standard errors reported"
+            print "       Cluster-variable   = " + c_id.name
+            print "       Number of clusters = " + "%0.0f" % C        
+            print "       N0 = " "%0.0f" % Na + ", N1 = " + "%0.0f" % Ns
                 
-        if r_W_names:
-            print ""
-            print "-------------------------------------------------"
-            print "- Maximum likelihood estimates of the p-score   -"
-            print "-------------------------------------------------"
+
+        print ""
+        print "-------------------------------------------------------------------------------------------"
+        print "- Maximum likelihood estimates of the p-score                                             -"
+        print "-------------------------------------------------------------------------------------------"
         
-            c = 0
-            for names in r_W_names:
-                print names.ljust(25) + "%10.6f" % delta_ml[c] + \
-                                 " (" + "%10.6f" % np.sqrt(vcov_theta_ast[c,c]) + ")"
-                c += 1
+        c = 0
+        for names in r_W_names:
+            print names.ljust(25) + "%10.6f" % delta_ml[c] + \
+                             " (" + "%10.6f" % np.sqrt(vcov_theta_ast[c,c]) + ")"
+            c += 1
                 
-        if t_W_names:
-            print ""
-            print "-------------------------------------------------"
-            print "- Tilting parameter estimates                   -"
-            print "-------------------------------------------------"
+        print ""
+        print "-------------------------------------------------------------------------------------------"
+        print "- Tilting parameter estimates                                                             -"
+        print "-------------------------------------------------------------------------------------------"
         
-            if study_tilt:
-                print ""
-                print "TREATED (study) sample tilt"
-                print "---------------------------------------------------"
-                
-                c = 0
-                for names in t_W_names:
-                    print names.ljust(25) + "%10.6f" % lambda_s_hat[c] + \
-                                     " (" + "%10.6f" % np.sqrt(vcov_theta_ast[1+L+c,1+L+c]) + ")"
-                    c += 1
-                    
-                print ""
-                print "Specification test for p-score (H_0 : lambda_s = 0)"
-                print "---------------------------------------------------"
-                print "chi-square("+str(dof_st)+") = " + "%10.6f" % ps_test_st + "   p-value: " + "% .6f" % pval_st 
-                
-                print ""
-                print "Summary statistics study/treated re-weighting"
-                print "---------------------------------------------------"
-                
-                j          = np.where(D)[0]        # find indices of treated units
-                N_s_eff    = 1/np.sum(pi_s[j]**2)  # Kish's formula for effective sample size
-                print "Kish's effective study/treated sample size = " "%0.0f" % N_s_eff
-                print ""
-                
-                print "Percentiles of N_s * pi_s distribution"
-                quantiles  = [1, 5, 10, 25, 50, 75, 90, 95, 99]
-                qnt_pi_s   = np.percentile(Ns*pi_s[j],quantiles)
-            
-                c = 0
-                for q in quantiles:
-                    print "%2.0f" % quantiles[c] + " percentile = " "%2.4f" % qnt_pi_s[c]
-                    c += 1     
-            
-            else:
-                print ""
-                print "--------------------------------------------------------"
-                print "- NOTE: Study tilt not computed (study_tilt = False).  -"
-                print "-       Components of t(W) assumed to be also in h(W). -"
-                print "--------------------------------------------------------"
-                print ""
-                
+        if study_tilt:
             print ""
-            print "CONTROL (auxiliary) sample tilt"
-            print "-------------------------------"
-            
+            print "TREATED (study) sample tilt"
+            print "-------------------------------------------------------------------------------------------"
+                
             c = 0
             for names in t_W_names:
-                print names.ljust(25) + "%10.6f" % lambda_a_hat[c] + \
-                                 " (" + "%10.6f" % np.sqrt(vcov_theta_ast[1+L+1+M+c,1+L+1+M+c]) + ")"
-                c += 1 
+                print names.ljust(25) + "%10.6f" % lambda_s_hat[c] + \
+                                 " (" + "%10.6f" % np.sqrt(vcov_theta_ast[1+L+c,1+L+c]) + ")"
+                c += 1
+                    
+            print ""
+            print "Specification test for p-score (H_0 : lambda_s = 0)"
+            print "-------------------------------------------------------------------------------------------"
+            print "chi-square("+str(dof_st)+") = " + "%10.6f" % ps_test_st + "   p-value: " + "% .6f" % pval_st 
                 
             print ""
-            print "Specification test for p-score (H_0 : lambda_a = 0)"
-            print "---------------------------------------------------"
-            print "chi-square("+str(dof_at)+") = " + "%10.6f" % ps_test_at + "   p-value: " + "% .6f" % pval_at
-            
-            print ""
-            print "Summary statistics auxiliary/control re-weighting"
-            print "---------------------------------------------------"
+            print "Summary statistics study/treated re-weighting"
+            print "-------------------------------------------------------------------------------------------"
                 
-            j          = np.where(1-D)[0]      # find indices of control units
-            N_a_eff    = 1/np.sum(pi_a[j]**2)  # Kish's formula for effective sample size
-            print "Kish's effective study/treated sample size = " "%0.0f" % N_a_eff
+            j          = np.where(D)[0]        # find indices of treated units
+            N_s_eff    = 1/np.sum(pi_s[j]**2)  # Kish's formula for effective sample size
+            print "Kish's effective study/treated sample size = " "%0.0f" % N_s_eff
             print ""
-            
-            print "Percentiles of N_a * pi_a distribution"
+                
+            print "Percentiles of N_s * pi_s distribution"
             quantiles  = [1, 5, 10, 25, 50, 75, 90, 95, 99]
-            qnt_pi_a   = np.percentile(Na*pi_a[j],quantiles)
-               
+            qnt_pi_s   = np.percentile(Ns*pi_s[j],quantiles)
+            
             c = 0
             for q in quantiles:
-                print "%2.0f" % quantiles[c] + " percentile = " "%2.4f" % qnt_pi_a[c]
+                print "%2.0f" % quantiles[c] + " percentile = " "%2.4f" % qnt_pi_s[c]
                 c += 1     
             
+        else:
+            print ""
+            print "--------------------------------------------------------"
+            print "- NOTE: Study tilt not computed (study_tilt = False).  -"
+            print "-       Components of t(W) assumed to be also in h(W). -"
+            print "--------------------------------------------------------"
+            print ""
+                
+        print ""
+        print "CONTROL (auxiliary) sample tilt"
+        print "-------------------------------------------------------------------------------------------"
             
-            # ------------------------------------------- #
-            # Construct "exact balancing" table         - #
-            # ------------------------------------------- #
+        c = 0
+        for names in t_W_names:
+            print names.ljust(25) + "%10.6f" % lambda_a_hat[c] + \
+                             " (" + "%10.6f" % np.sqrt(vcov_theta_ast[1+L+1+M+c,1+L+1+M+c]) + ")"
+            c += 1 
+                
+        print ""
+        print "Specification test for p-score (H_0 : lambda_a = 0)"
+        print "-------------------------------------------------------------------------------------------"
+        print "chi-square("+str(dof_at)+") = " + "%10.6f" % ps_test_at + "   p-value: " + "% .6f" % pval_at
             
-            # Compute means of t_W across various distribution function estimates
-            # Mean of t(W) across controls
-            mu_t_D0      = np.sum((1-D) * t_W, axis = 0)/Na
-            mu_t_D0_std  = np.sqrt(np.sum((1-D) * (t_W - mu_t_D0)**2, axis = 0)/Na)
+        print ""
+        print "Summary statistics auxiliary/control re-weighting"
+        print "-------------------------------------------------------------------------------------------"
+                
+        j          = np.where(1-D)[0]      # find indices of control units
+        N_a_eff    = 1/np.sum(pi_a[j]**2)  # Kish's formula for effective sample size
+        print "Kish's effective auxiliary/control sample size = " "%0.0f" % N_a_eff
+        print ""
             
-            # Mean of t(W) across treated
-            mu_t_D1      = np.sum(D * t_W, axis = 0)/Ns
-            mu_t_D1_std  = np.sqrt(np.sum(D * (t_W - mu_t_D1)**2, axis = 0)/Ns)
+        print "Percentiles of N_a * pi_a distribution"
+        quantiles  = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+        qnt_pi_a   = np.percentile(Na*pi_a[j],quantiles)
+               
+        c = 0
+        for q in quantiles:
+            print "%2.0f" % quantiles[c] + " percentile = " "%2.4f" % qnt_pi_a[c]
+            c += 1     
             
-            # Normalized mean differences across treatment and controls 
-            # (cf., Imbens, 2015, Journal of Human Resources)
-            NormDif_t    = (mu_t_D1 - mu_t_D0)/np.sqrt((mu_t_D1_std**2 + mu_t_D0_std**2)/2)    
+            
+        # ------------------------------------------- #
+        # Construct "exact balancing" table         - #
+        # ------------------------------------------- #
+            
+        Na_wgt = np.sum(s_wgt * (1-D) , axis = 0)
+        Ns_wgt = np.sum(s_wgt * D , axis = 0)              
+            
+        # Compute means of t_W across various distribution function estimates
+        # Mean of t(W) across controls
+        mu_t_D0      = np.sum(s_wgt * (1-D) * t_W, axis = 0)/Na_wgt
+        mu_t_D0_std  = np.sqrt(np.sum(s_wgt * (1-D) * (t_W - mu_t_D0)**2, axis = 0)/Na_wgt)
+            
+        # Mean of t(W) across treated
+        mu_t_D1      = np.sum(s_wgt * D * t_W, axis = 0)/Ns_wgt
+        mu_t_D1_std  = np.sqrt(np.sum(s_wgt * D * (t_W - mu_t_D1)**2, axis = 0)/Ns_wgt)
+            
+        # Normalized mean differences across treatment and controls 
+        # (cf., Imbens, 2015, Journal of Human Resources)
+        NormDif_t    = (mu_t_D1 - mu_t_D0)/np.sqrt((mu_t_D1_std**2 + mu_t_D0_std**2)/2)    
                                     
+        # Semiparametrically efficient estimate of mean of t(W) across treated
+        mu_t_eff     = np.sum(pi_eff * t_W, axis = 0)
+        mu_t_eff_std = np.sqrt(np.sum(pi_eff * (t_W - mu_t_eff)**2, axis = 0))
             
-            # Semiparametrically efficient estimate of mean of t(W) across treated
-            mu_t_eff     = np.sum(pi_eff * t_W, axis = 0)
-            mu_t_eff_std = np.sqrt(np.sum(pi_eff * (t_W - mu_t_eff)**2, axis = 0))
+        # Mean of t(W) across controls after re-weighting
+        mu_t_a     = np.sum(pi_a * t_W, axis = 0)
+        mu_t_a_std = np.sqrt(np.sum(pi_a * (t_W - mu_t_a)**2, axis = 0))
             
-            # Mean of t(W) across controls after re-weighting
-            mu_t_a     = np.sum(pi_a * t_W, axis = 0)
-            mu_t_a_std = np.sqrt(np.sum(pi_a * (t_W - mu_t_a)**2, axis = 0))
+        # Mean of t(W) across treated after re-weighting
+        mu_t_s     = np.sum(pi_s * t_W, axis = 0)
+        mu_t_s_std = np.sqrt(np.sum(pi_s * (t_W - mu_t_s)**2, axis = 0))
             
-            # Mean of t(W) across treated after re-weighting
-            mu_t_s     = np.sum(pi_s * t_W, axis = 0)
-            mu_t_s_std = np.sqrt(np.sum(pi_s * (t_W - mu_t_s)**2, axis = 0))
+        # Pre-balance table
+        print ""
+        print "Means & standard deviations of t_W (pre-balance)                                           "
+        print "-------------------------------------------------------------------------------------------"
+        print "                            Control (D = 0)        Treated (D = 1)        Norm. Diff.      "
+        print "-------------------------------------------------------------------------------------------"
+        c = 0
+        for names in t_W_names:
+            print names.ljust(25) + "%8.4f" % mu_t_D0[c]  + " (" + "%8.4f" % mu_t_D0_std[c] + ")    " \
+                                  + "%8.4f" % mu_t_D1[c]  + " (" + "%8.4f" % mu_t_D1_std[c] + ")    " \
+                                  + "%8.4f" % NormDif_t[c]  
+            c += 1
             
-            # Pre-balance table
-            print ""
-            print "Means & standard deviations of t_W (pre-balance)                                           "
-            print "-------------------------------------------------------------------------------------------"
-            print "                            D = 0                  D = 1                  Norm. Diff.      "
-            print "-------------------------------------------------------------------------------------------"
-            c = 0
-            for names in t_W_names:
-                print names.ljust(25) + "%8.4f" % mu_t_D0[c]  + " (" + "%8.4f" % mu_t_D0_std[c] + ")    " \
-                                      + "%8.4f" % mu_t_D1[c]  + " (" + "%8.4f" % mu_t_D1_std[c] + ")    " \
-                                      + "%8.4f" % NormDif_t[c]  
-                c += 1
-            
-            # Post-balance table
-            print ""
-            print "Means and standard deviations of t_W (post-balance)                                        "
-            print "-------------------------------------------------------------------------------------------"
-            print "                            Efficient (D = 1)      Auxiliary (D = 0)      Study (D = 1     "
-            print "-------------------------------------------------------------------------------------------"
-            c = 0
-            for names in t_W_names:
-                print names.ljust(25) + "%8.4f" % mu_t_eff[c]  + " (" + "%8.4f" % mu_t_eff_std[c] + ")    " \
-                                      + "%8.4f" % mu_t_a[c]    + " (" + "%8.4f" % mu_t_a_std[c]   + ")    " \
-                                      + "%8.4f" % mu_t_s[c]    + " (" + "%8.4f" % mu_t_s_std[c]   + ")    "
-                c += 1     
+        # Post-balance table
+        print ""
+        print "Means and standard deviations of t_W (post-balance)                                        "
+        print "-------------------------------------------------------------------------------------------"
+        print "                            Control (D = 0)        Treated (D = 1)        Efficient (D = 1)"
+        print "-------------------------------------------------------------------------------------------"
+        c = 0
+        for names in t_W_names:
+            print names.ljust(25) + "%8.4f" % mu_t_a[c]    + " (" + "%8.4f" % mu_t_a_std[c]   + ")    " \
+                                  + "%8.4f" % mu_t_s[c]    + " (" + "%8.4f" % mu_t_s_std[c]   + ")    " \
+                                  + "%8.4f" % mu_t_eff[c]  + " (" + "%8.4f" % mu_t_eff_std[c] + ")    " 
+            c += 1     
     
     return [gamma_ast, vcov_gamma_ast, study_test, auxiliary_test, pi_eff, pi_s, pi_a, exitflag]
