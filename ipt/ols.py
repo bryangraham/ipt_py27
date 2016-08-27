@@ -10,7 +10,7 @@ import pandas as pd
 
 # Define ols() function
 #-----------------------------------------------------------------------------#
-def ols(Y, X, c_id = None, sw = None, silent=False):
+def ols(Y, X, c_id=None, s_wgt=None, silent=False):
     """
     AUTHOR: Bryan S. Graham, UC - Berkeley, bgraham@econ.berkeley.edu  
     DATE: 26 May 2016    
@@ -34,7 +34,7 @@ def ols(Y, X, c_id = None, sw = None, silent=False):
     c_id     : N X 1 pandas.Series of unique `cluster' id values (assumed to be integer valued) (optional)
                NOTE: Default is to assume independent observations and report heteroscedastic robust 
                      standard errors
-    sw       : N X 1 array like vector of sampling weights variable (optional)
+    s_wgt    : N X 1 array like vector of sampling weights variable (optional)
     silent   : if set equal to True, then suppress all outcome (optional)
     
     OUTPUTS:
@@ -49,11 +49,11 @@ def ols(Y, X, c_id = None, sw = None, silent=False):
     n       = len(Y)                     # Number of observations
     K       = X.shape[1]                 # Number of regressors
     
-    if sw is None:
-        sw = 1 
+    if s_wgt is None:
+        s_wgt = 1 
     else:
-        sw = sw.reshape((n,1))           # Turn pandas.Series into N x 1 numpy array (if relevant)
-        sw = sw/np.mean(sw)              # Normalize sampling weights to have mean 1
+        s_wgt = s_wgt.reshape((n,1))     # Turn pandas.Series into N x 1 numpy array (if relevant)
+        s_wgt = s_wgt/np.mean(s_wgt)     # Normalize sampling weights to have mean 1
     
     # Extract variable names from pandas data objects
     dep_var = Y.name                     # Get dependent variable names
@@ -64,12 +64,12 @@ def ols(Y, X, c_id = None, sw = None, silent=False):
     X       = np.asarray(X)              # Turn pandas.DataFrame into N x K numpy array
     
     # Compute beta_hat   
-    XX  = (sw * X).T.dot(X)
-    XY  = (sw * X).T.dot(Y)
+    XX  = (s_wgt * X).T.dot(X)
+    XY  = (s_wgt * X).T.dot(Y)
     beta_hat = np.linalg.solve(XX, XY)
     
     # Compute estimate of variance-covariance matrix of the sample moment vector
-    psi    = sw * X * (Y - X.dot(beta_hat))  # n x K matrix of moment vectors
+    psi    = s_wgt * X * (Y - X.dot(beta_hat))  # n x K matrix of moment vectors
     
     if c_id is None: 
         

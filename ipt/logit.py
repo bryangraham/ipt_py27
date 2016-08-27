@@ -11,7 +11,7 @@ import scipy.optimize
 # Define logit() function
 #-----------------------------------------------------------------------------#
 
-def logit(D, X, s_wgt=1, silent=False):
+def logit(D, X, s_wgt=1, nocons=False, silent=False):
 
     """
     AUTHOR: Bryan S. Graham, UC - Berkeley, bgraham@econ.berkeley.edu      
@@ -28,6 +28,7 @@ def logit(D, X, s_wgt=1, silent=False):
     X      : X is a N x K matrix of covariates (without a constant)
     s_wgt  : N x 1 vector of known sampling weights (assumed to have mean
              one, optional)
+    nocons : If True, then do NOT add constant to the design matrix        
     silent : when silent = True optimization output is suppressed and
              optimization is by Fisher-scoring with lower tolerances.
              Otherwise optimization output is displayed with tighter convergence
@@ -35,8 +36,8 @@ def logit(D, X, s_wgt=1, silent=False):
 
     OUTPUTS
     -------
-    gamma_ml         : ML estimates of logit coefficients 
-    vcov_delta_ml    : large sample covariance of estimates (= inverse Infomation)
+    gamma_ml  : ML estimates of logit coefficients 
+    hess_logl : Hessian matrix associated with log-likelihood
 
     Functions called : logit_logl, logit_score, logit_hess
     """
@@ -92,39 +93,37 @@ def logit(D, X, s_wgt=1, silent=False):
     #--------------------------------------------------------------------#
                     
     (N, K) = np.shape(X)                                   # Number of observations and covariates
-    X      = np.concatenate((np.ones((N,1)), X), axis=1)   # Add a constant to the regressor matrix
-    K      = K + 1
+    
+    # Add a constant to the regressor matrix (if needed)
+    if not nocons:
+        X      = np.concatenate((np.ones((N,1)), X), axis=1)   
+        K      = K + 1
      
     #--------------------------------------------------------------------#
     #- STEP 2 : Compute CMLE                                            -#
     #--------------------------------------------------------------------#                   
     
+    # For starting values set constant to calibrate marginal probability of outcome and
+    # all slope coefficients to zero     
+    delta_sv    = np.zeros((K,))
+    if not nocons:
+        p_hat       = np.mean(D);
+        delta_sv[0] = np.log(p_hat/(1-p_hat))
+            
     if silent:
         # Suppress optimization output, use Fisher-Scoring, coarser tolerance values and fewer iterations
                        
-        # For starting values set constant to calibrate marginal probability of outcome and
-        # all slope coefficients to zero     
-        delta_sv    = np.zeros((K,))
-        p_hat       = np.mean(D);
-        delta_sv[0] = np.log(p_hat/(1-p_hat))
-        
         # Compute MLE via Fisher-Scoring
         delta_res_ml = sp.optimize.minimize(logit_logl, delta_sv, args=(D, X, s_wgt), method='Newton-CG', \
                                             jac=logit_score, hess=logit_hess, \
                                             options={'xtol': 1e-6, 'maxiter': 1000, 'disp': False})
         
         delta_ml = delta_res_ml.x
-        vcov_delta_ml = np.linalg.inv(logit_hess(delta_ml, D, X, s_wgt)) # Use the inverse observed information to 
-                                                                         # estimate the large sample variance of delta_ml 
+        hess_logl = -logit_hess(delta_ml, D, X, s_wgt) # Negative of returned hessian is the desired object since
+                                                       # the negative of the logL is minimized here
         
     else:
         # Show optimization output, use Fisher-Scoring, finer tolerance values and more iterations
-        
-        # For starting values set constant to calibrate marginal probability of outcome and
-        # all slope coefficients to zero     
-        delta_sv    = np.zeros((K,))
-        p_hat       = np.mean(D);
-        delta_sv[0] = np.log(p_hat/(1-p_hat))
         
         # Derivative check at starting values
         grad_norm = sp.optimize.check_grad(logit_logl, logit_score, delta_sv, D, X, s_wgt, epsilon = 1e-10)
@@ -133,9 +132,9 @@ def logit(D, X, s_wgt=1, silent=False):
         # Solve for MLE
         delta_res_ml = sp.optimize.minimize(logit_logl, delta_sv, args=(D, X, s_wgt), method='Newton-CG', \
                                             jac=logit_score, hess=logit_hess, callback = logit_callback, \
-                                            options={'xtol': 1e-16, 'maxiter': 10000, 'disp': True}) 
+                                            options={'xtol': 1e-12, 'maxiter': 10000, 'disp': True}) 
         delta_ml = delta_res_ml.x
-        vcov_delta_ml = np.linalg.inv(logit_hess(delta_ml, D, X, s_wgt)) # Use the inverse observed information to estimate 
-                                                                         # the large sample variance of delta_ml 
+        hess_logl = -logit_hess(delta_ml, D, X, s_wgt) # Negative of returned hessian is the desired object since
+                                                       # the negative of the logL is minimized here
         
-    return [delta_ml, vcov_delta_ml, delta_res_ml.success]                   
+    return [delta_ml, hess_logl, delta_res_ml.success]                   

@@ -9,6 +9,8 @@ import scipy as sp
 import scipy.optimize
 import scipy.stats
 
+import pandas as pd
+
 # Import logit() command in ipt module since att() calls it
 from logit import logit
 
@@ -36,7 +38,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
                 population (i.e., D is the "treatment" indicator)
     Y         : N x 1  pandas.Series of observed outcomes                  
     r_W       : r(W), N x 1+L pandas.DataFrame of functions of always observed covariates
-                (constant included) -- these are the propensity score functions
+                (constant included as *first* element) -- these are the propensity score functions
     t_W       : t(W), N x 1+M pandas.DataFrame of functions of always observed covariates
                 (constant included) -- these are the balancing functions     
     study_tilt: If True compute the study sample tilt. This should be set to False 
@@ -59,14 +61,17 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
     -------
     gamma_ast         : AST estimate of gamma (the ATT)
     vcov_gamma_ast    : estimated large sample variance of gamma
-    study_test        : ChiSq test statistic of H0 : lambda_s = 0; list with 
-                        [statistic, dof, p-val]
-                        NOTE: returns [None, None, None] if study_tilt = False
-    auxiliar_test     : ChiSq test statistic of H0 : lambda_a = 0; list with 
-                        [statistic, dof, p-val]
-    pi_eff            : Semiparametrically efficient estimate of F_s(W) 
-    pi_s              : Study sample tilt
-    pi_a              : Auxiliary sample tilt 
+    pscore_tests      : list of [study_test, auxiliary_test] where      
+                        study_test     : ChiSq test statistic of H0 : lambda_s = 0; list with 
+                                         [statistic, dof, p-val]
+                                         NOTE: returns [None, None, None] if study_tilt = False
+                        auxiliary_test : ChiSq test statistic of H0 : lambda_a = 0; list with 
+                                         [statistic, dof, p-val]
+    tilts             : numpy array with pi_eff, pi_s & pi_a as columns, sorted according
+                        to the input data, and where                                     
+                        pi_eff : Semiparametrically efficient estimate of F_s(W) 
+                        pi_s   : Study sample tilt
+                        pi_a   : Auxiliary sample tilt 
     exitflag          : 1 = success, 2 = can't compute MLE of p-score, 3 = can't compute study/treated tilt,
                         4 = can't compute auxiliary/control tilt
 
@@ -183,8 +188,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         print "Value of ast_crit = "   + "%.6f" % ast_crit(lmbda, 1-D, p_W, -p_W_index, t_W, NQ, rlgrz, s_wgt) + \
               ",  2-norm of ast_foc = "+ "%.6f" % numpy.linalg.norm(ast_foc(lmbda, 1-D, p_W, -p_W_index, t_W, \
                                                                             NQ, rlgrz, s_wgt))
-
-    
+  
     # ----------------------------------------------------------------------------------- #
     # - STEP 1 : ORGANIZE DATA                                                          - #
     # ----------------------------------------------------------------------------------- #
@@ -223,16 +227,16 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
     try:
         if not silent:
             print ""
-            print "-------------------------------------------------------"
-            print "- Computing propensity score by MLE                   -"
-            print "-------------------------------------------------------"
+            print "--------------------------------------------------------------"
+            print "- Computing propensity score by MLE                          -"
+            print "--------------------------------------------------------------"
         
-        [delta_ml, vcov_delta_ml, success]= logit(D, r_W[:,1:], s_wgt, silent)  # CMLE of p-score coefficients
-        delta_ml                 = np.reshape(delta_ml,(-1,1))         # Put delta_ml into 2-dimensional form
-        p_W_index                = np.dot(r_W, delta_ml)               # Fitted p-score index 
-        p_W                      = (1 + np.exp(-p_W_index))**-1        # Fitted p-score probabilities
-        NQ                       = np.sum(s_wgt * p_W)                 # Sum of fitted p-scores
-        pi_eff                   = (s_wgt * p_W) / NQ                  # Efficient estimate of F(W)
+        [delta_ml, vcov_delta_ml, success]= logit(D, r_W[:,1:], s_wgt, silent=silent)  # CMLE of p-score coefficients
+        delta_ml                 = np.reshape(delta_ml,(-1,1))                         # Put delta_ml into 2-dimensional form
+        p_W_index                = np.dot(r_W, delta_ml)                               # Fitted p-score index 
+        p_W                      = (1 + np.exp(-p_W_index))**-1                        # Fitted p-score probabilities
+        NQ                       = np.sum(s_wgt * p_W)                                 # Sum of fitted p-scores
+        pi_eff                   = (s_wgt * p_W) / NQ                                  # Efficient estimate of F(W)
     
     except:
         print "FATAL ERROR: exitflag = 2, unable to compute propensity score by maximum likelihood."
@@ -240,14 +244,11 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         # Set all returnables to "None" and then exit function
         gamma_ast      = None
         vcov_gamma_ast = None
-        study_test     = [None, None, None]
-        auxiliary_test = [None, None, None]
-        pi_eff         = None
-        pi_s           = None
-        pi_a           = None
+        pscore_tests   = None    
+        tilts          = None
         exitflag       = 2
         
-        return [gamma_ast, vcov_gamma_ast, study_test, auxiliary_test, pi_eff, pi_s, pi_a, exitflag]
+        return [gamma_ast, vcov_gamma_ast, pscore_tests, tilts, exitflag]
     
     # ----------------------------------------------------------------------------------- #
     # - STEP 3 : SOLVE FOR AST TILTING PARAMETERS                                       - #
@@ -258,12 +259,12 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         # Use Newton-CG solver with vector of zeros as starting values, 
         # low tolerance levels, and smaller number of allowed iterations.
         # Hide iteration output.
-        options_set = {'xtol': 1e-6, 'maxiter': 1000, 'disp': False}
+        options_set = {'xtol': 1e-8, 'maxiter': 1000, 'disp': False}
     else:
         # Use Newton-CG solver with vector of zeros as starting values, 
         # high tolerance levels, and larger number of allowed iterations.
         # Show iteration output.
-        options_set = {'xtol': 1e-16, 'maxiter': 10000, 'disp': True}
+        options_set = {'xtol': 1e-12, 'maxiter': 10000, 'disp': True}
         
     lambda_sv = np.zeros(1+M) # use vector of zeros as starting values
   
@@ -284,13 +285,13 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         try:
             if not silent:
                 print ""
-                print "-------------------------------------------------------"
-                print "- Computing study/treated sample tilt                 -"
-                print "-------------------------------------------------------"
+                print "--------------------------------------------------------------"
+                print "- Computing study/treated sample tilt                        -"
+                print "--------------------------------------------------------------"
             
                 # Derivative check at starting values
                 grad_norm = sp.optimize.check_grad(ast_crit, ast_foc, lambda_sv, D, p_W, p_W_index, t_W, NQ, rlgrz, \
-                                                   s_wgt, epsilon = 1e-10)
+                                                   s_wgt, epsilon = 1e-12)
                 print 'Study sample tilt derivative check (2-norm): ' + "%.8f" % grad_norm
                 
                 # Solve for tilting parameters
@@ -308,14 +309,11 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
             # Set all returnables to "None" and then exit function
             gamma_ast      = None
             vcov_gamma_ast = None
-            study_test     = [None, None, None]
-            auxiliary_test = [None, None, None]
-            pi_eff         = None
-            pi_s           = None
-            pi_a           = None
+            pscore_tests   = None    
+            tilts          = None
             exitflag       = 3
         
-            return [gamma_ast, vcov_gamma_ast, study_test, auxiliary_test, pi_eff, pi_s, pi_a, exitflag]
+            return [gamma_ast, vcov_gamma_ast, pscore_tests, tilts, exitflag]
         
         # Collect study tilt estimation results needed below
         lambda_s_hat = np.reshape(lambda_s_res.x,(-1,1))                           # study/treated sample tilting 
@@ -340,7 +338,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         # Collect study tilt objects needed below
         lambda_s_hat = np.reshape(lambda_sv ,(-1,1)) # study/treated sample tilting parameters set equal to zero
         p_W_s = p_W                                  # study/treated sample tilted p-score equals actual score
-        pi_s  = D * pi_eff / p_W_s                   # set pi_s to empirical measure of study sub-sample 
+        pi_s  = D * pi_eff / p_W_s                   # set pi_s to "empirical measure" of study sub-sample 
                                                      # (w/o sampling weights this puts mass 1/Ns on each study unit)
    
     #------------------------------#
@@ -351,13 +349,13 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
     try:
         if not silent:
             print ""
-            print "-------------------------------------------------------"
-            print "- Computing auxiliary/control sample tilt             -"
-            print "-------------------------------------------------------"
+            print "--------------------------------------------------------------"
+            print "- Computing auxiliary/control sample tilt                    -"
+            print "--------------------------------------------------------------"
             
             # Derivative check at starting values
             grad_norm = sp.optimize.check_grad(ast_crit, ast_foc, lambda_sv, 1-D, p_W, -p_W_index, t_W, NQ, rlgrz, \
-                                               s_wgt, epsilon = 1e-10)
+                                               s_wgt, epsilon = 1e-12)
             print 'Auxiliary sample tilt derivative check (2-norm): ' + "%.8f" % grad_norm 
             
             # Solve for tilting parameters
@@ -375,14 +373,11 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         # Set returnables to "None" and then exit function
         gamma_ast      = None
         vcov_gamma_ast = None
-        study_test     = [None, None, None]
-        auxiliary_test = [None, None, None]
-        pi_eff         = None
-        pi_s           = None
-        pi_a           = None
+        pscore_tests   = None    
+        tilts          = None
         exitflag       = 4
         
-        return [gamma_ast, vcov_gamma_ast, study_test, auxiliary_test, pi_eff, pi_s, pi_a, exitflag]
+        return [gamma_ast, vcov_gamma_ast, pscore_tests, tilts, exitflag]
     
     # Collect auxiliary tilt estimation results needed below
     lambda_a_hat = -np.reshape(lambda_a_res.x,(-1,1))                          # auxiliary/control sample tilting 
@@ -411,12 +406,14 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
     # Calculate covariance matrix of moment vector. Take into account any 
     # within-group dependence/clustering as needed
     if c_id is None:
+        
         # Case 1: No cluster dependence to account for when constructing covariance matrix
         C   = N                                         # Number of clusters equals number of observations        
         fsc = N/(N - (1+L+2*(1+M)+1))                   # Finite-sample correction factor        
         V_m = fsc*np.dot(m, m.T)/N
         
     else:
+        
         # Case 2: Need to correct for cluster dependence when constructing covariance matrix
     
         # Get number and unique list of clusters
@@ -522,6 +519,9 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         print "-------------------------------------------------------------------------------------------"
         print "- Maximum likelihood estimates of the p-score                                             -"
         print "-------------------------------------------------------------------------------------------"
+        print ""
+        print "Independent variable       Coef.    ( Std. Err.) "
+        print "-------------------------------------------------------------------------------------------"
         
         c = 0
         for names in r_W_names:
@@ -537,6 +537,9 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         if study_tilt:
             print ""
             print "TREATED (study) sample tilt"
+            print "-------------------------------------------------------------------------------------------"
+            print ""
+            print "Independent variable       Coef.    ( Std. Err.) "
             print "-------------------------------------------------------------------------------------------"
                 
             c = 0
@@ -579,6 +582,9 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         print ""
         print "CONTROL (auxiliary) sample tilt"
         print "-------------------------------------------------------------------------------------------"
+        print ""
+        print "Independent variable       Coef.    ( Std. Err.) "
+        print "-------------------------------------------------------------------------------------------"
             
         c = 0
         for names in t_W_names:
@@ -608,8 +614,7 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         for q in quantiles:
             print "%2.0f" % quantiles[c] + " percentile = " "%2.4f" % qnt_pi_a[c]
             c += 1     
-            
-            
+              
         # ------------------------------------------- #
         # Construct "exact balancing" table         - #
         # ------------------------------------------- #
@@ -646,12 +651,12 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         print ""
         print "Means & standard deviations of t_W (pre-balance)                                           "
         print "-------------------------------------------------------------------------------------------"
-        print "                            Control (D = 0)        Treated (D = 1)        Norm. Diff.      "
+        print "                            Treated (D = 1)        Control (D = 0)        Norm. Diff.      "
         print "-------------------------------------------------------------------------------------------"
         c = 0
         for names in t_W_names:
-            print names.ljust(25) + "%8.4f" % mu_t_D0[c]  + " (" + "%8.4f" % mu_t_D0_std[c] + ")    " \
-                                  + "%8.4f" % mu_t_D1[c]  + " (" + "%8.4f" % mu_t_D1_std[c] + ")    " \
+            print names.ljust(25) + "%8.4f" % mu_t_D1[c]  + " (" + "%8.4f" % mu_t_D1_std[c] + ")    " \
+                                  + "%8.4f" % mu_t_D0[c]  + " (" + "%8.4f" % mu_t_D0_std[c] + ")    " \
                                   + "%8.4f" % NormDif_t[c]  
             c += 1
             
@@ -659,13 +664,17 @@ def att(D, Y, r_W, t_W, study_tilt=True, rlgrz=1, c_id=None, s_wgt=None, silent=
         print ""
         print "Means and standard deviations of t_W (post-balance)                                        "
         print "-------------------------------------------------------------------------------------------"
-        print "                            Control (D = 0)        Treated (D = 1)        Efficient (D = 1)"
+        print "                            Treated (D = 1)        Control (D = 0)        Efficient (D = 1)"
         print "-------------------------------------------------------------------------------------------"
         c = 0
         for names in t_W_names:
-            print names.ljust(25) + "%8.4f" % mu_t_a[c]    + " (" + "%8.4f" % mu_t_a_std[c]   + ")    " \
-                                  + "%8.4f" % mu_t_s[c]    + " (" + "%8.4f" % mu_t_s_std[c]   + ")    " \
+            print names.ljust(25) + "%8.4f" % mu_t_s[c]    + " (" + "%8.4f" % mu_t_s_std[c]   + ")    " \
+                                  + "%8.4f" % mu_t_a[c]    + " (" + "%8.4f" % mu_t_a_std[c]   + ")    " \
                                   + "%8.4f" % mu_t_eff[c]  + " (" + "%8.4f" % mu_t_eff_std[c] + ")    " 
             c += 1     
     
-    return [gamma_ast, vcov_gamma_ast, study_test, auxiliary_test, pi_eff, pi_s, pi_a, exitflag]
+    # Collect/format remaining returnables and exit function
+    pscore_tests = [study_test, auxiliary_test]                 # Collect p-score test results
+    tilts        = np.concatenate((pi_eff, pi_s, pi_a), axis=1) # Collect three sample tilts              
+
+    return [gamma_ast, vcov_gamma_ast, pscore_tests, tilts, exitflag]
