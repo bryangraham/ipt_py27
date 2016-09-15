@@ -21,7 +21,7 @@ code in your research.
 A simple example script to get started is::
 
 	>>>> # Append location of ipt module root directory to systems path
-	>>>> # NOTE: Only required ipt not "permanently" installed
+	>>>> # NOTE: Only required if ipt not "permanently" installed
 	>>>> import sys
 	>>>> sys.path.append('/Users/bgraham/Dropbox/Sites/software/ipt/')
 
