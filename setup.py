@@ -5,9 +5,9 @@ def readme():
         return f.read()
 
 setup(name='ipt',
-      version='0.2.2',
+      version='0.2.3',
       description='Probability Tilting Methods (IPT) for Causal Inference',
-      long_description='Python implementations of Graham, Pinto and Egel (2012, 2016)',
+      long_description=readme(),
       classifiers=[
         'Development Status :: 3 - Alpha',
         'License :: OSI Approved :: MIT License',
