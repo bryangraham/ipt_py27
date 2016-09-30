@@ -58,8 +58,8 @@ A simple example script to get started is::
 
 	>>>> # Compute AST estimate of ATT
 	>>>> [gamma_as, vcov_gamma_ast, study_test, auxiliary_test, pi_eff_nsw, \
-											pi_s_nsw, pi_a_nsw, exitflag] = \
-	                                        ipt.att(D, Y, r_W, t_W, study_tilt=True)
+				pi_s_nsw, pi_a_nsw, exitflag] = \
+				ipt.att(D, Y, r_W, t_W, study_tilt=True)
 	>>>>                                          
 
 
